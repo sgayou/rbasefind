@@ -20,8 +20,7 @@ fn main() {
         .author("Scott G. <github.scott@gmail.com>")
         .about(
             "Scan a flat 32-bit binary and attempt to brute-force the base address via \
-             string/pointer comparison. Based on the excellent basefind.py by mncoppola \
-             but dramatically faster.",
+             string/pointer comparison. Based on the excellent basefind.py by mncoppola.",
         )
         .args_from_usage(
             "<INPUT>                'The input binary to scan'
