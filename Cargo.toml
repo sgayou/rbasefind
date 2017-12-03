@@ -1,0 +1,10 @@
+[package]
+name = "rbasefind"
+version = "0.1.0"
+authors = ["github.scott@gmail.com"]
+
+[dependencies]
+byteorder = "1.2"
+clap = "2.28"
+fnv = "1.0"
+regex = "0.2"
