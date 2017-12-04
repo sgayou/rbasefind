@@ -23,3 +23,4 @@ Matched 38 strings to pointers at 0x2000.
 * Some form of progress indication.
 * Multithreading.
 * Check if thumb works the same way. 16-bit mode?
+* Cleanup & refactor. Need to follow the Rust book's guidelines on design.
