@@ -10,9 +10,9 @@ use regex::bytes::Regex;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::prelude::*;
-use std::process;
 
 const SCAN_OFFSET: u32 = 0x1000;
+const MAX_STR_LEN: u32 = 1024;
 
 fn main() {
     let matches = App::new("rbasefind")
@@ -30,18 +30,18 @@ fn main() {
         .get_matches();
 
     let filename = matches.value_of("INPUT").unwrap();
-    let min_str_len = match matches.value_of("minstrlen").unwrap_or("10").parse::<i32>() {
-        Ok(num) => num,
-        Err(_) => {
-            eprintln!("Failed to parse minstrlen parameter.");
-            process::exit(1);
-        }
-    };
-
+    let min_str_len = matches
+        .value_of("minstrlen")
+        .unwrap_or("10")
+        .parse::<u32>()
+        .expect("Failed to parse minstrlen parameter.");
+    if min_str_len > MAX_STR_LEN {
+        panic!("minstrlen too big");
+    }
     let big_endian = matches.is_present("bigendian");
 
     // Read in the input file. We jam it all into memory for now.
-    let mut f = File::open(filename).expect("file not found");
+    let mut f = File::open(filename).expect("failed to open file");
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).expect("failed to read file");
 
