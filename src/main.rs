@@ -70,7 +70,6 @@ fn main() {
             };
         }
     }
-
     eprintln!("Located {} pointers.", pointers.len());
 
     // Look for a match.
