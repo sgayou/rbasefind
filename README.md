@@ -1,5 +1,5 @@
 # rbasefind
-A rust brute-force base address scanner based on [@mncoppola's](https://github.com/mncoppola) excellent [basefind.py](https://github.com/mncoppola/ws30/blob/master/basefind.py). Dramatically faster.
+A brute-force base address scanner based on [@mncoppola's](https://github.com/mncoppola) [basefind.py](https://github.com/mncoppola/ws30/blob/master/basefind.py) & [@rsaxvc's](https://github.com/rsaxvc) [basefind.cpp](https://github.com/mncoppola/ws30/blob/master/basefind.cpp) implemented in rust.
 
 ## Features
 Scans a flat, 32-bit binary file and attempts to calculate the base address of the image. Looks for ASCII English strings then finds the greatest intersection of all 32-bit words interpreted as pointers and the offsets of the strings.
