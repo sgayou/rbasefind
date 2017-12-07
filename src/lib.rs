@@ -66,7 +66,7 @@ impl Config {
     }
 }
 
-fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>>  {
+fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>> {
     let mut strings = FnvHashSet::default();
 
     let reg_str = format!("[ -~\\t\\r\\n]{{{},}}\x00", config.min_str_len);
@@ -77,25 +77,60 @@ fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Er
     Ok(strings)
 }
 
-fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>>  {
-    // Simply assume every 32-bit value is a pointer. Naïve!
+fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>> {
     let mut pointers = FnvHashSet::default();
     let mut rdr = Cursor::new(&buffer);
     loop {
-        if config.big_endian {
-            match rdr.read_u32::<BigEndian>() {
-                Ok(v) => pointers.insert(v),
-                Err(_) => break,
-            };
+        let res = if config.big_endian {
+            rdr.read_u32::<BigEndian>()
         } else {
-            match rdr.read_u32::<LittleEndian>() {
-                Ok(v) => pointers.insert(v),
-                Err(_) => break,
-            };
-        }
+            rdr.read_u32::<LittleEndian>()
+        };
+        match res {
+            Ok(v) => pointers.insert(v),
+            Err(_) => break,
+        };
     }
 
     Ok(pointers)
+}
+
+fn find_matches(
+    config: &Config,
+    strings: &FnvHashSet<u32>,
+    pointers: &FnvHashSet<u32>,
+) -> Result<(), Box<Error>> {
+    let mut most_intersections = 0;
+    let mut addr: u32 = u32::min_value();
+    eprintln!(
+        "Starting scan at 0x{:X} with 0x{:x} byte interval",
+        u32::min_value(),
+        &config.offset
+    );
+    while addr < u32::max_value() {
+        let mut news = FnvHashSet::default();
+        for s in strings {
+            match s.checked_add(addr) {
+                Some(add) => news.insert(add),
+                None => continue,
+            };
+        }
+        let intersection: FnvHashSet<_> = news.intersection(&pointers).collect();
+        if intersection.len() > most_intersections {
+            most_intersections = intersection.len();
+            println!(
+                "Matched {} strings to pointers at 0x{:x}",
+                intersection.len(),
+                addr
+            );
+        }
+        match addr.checked_add(config.offset) {
+            Some(_) => addr += config.offset,
+            None => break,
+        };
+    }
+
+    Ok(())
 }
 
 
@@ -116,36 +151,7 @@ pub fn run(config: &Config) -> Result<(), Box<Error>> {
     let pointers = get_pointers(&config, &buffer)?;
     eprintln!("Located {} pointers", pointers.len());
 
-    // Look for a match.
-    let mut most_intersections = 0;
-    let mut addr: u32 = u32::min_value();
-    eprintln!(
-        "Starting scan at 0x{:X} with 0x{:x} byte interval",
-        u32::min_value(),
-        config.offset
-    );
-    while addr < u32::max_value() {
-        let mut news = FnvHashSet::default();
-        for s in &strings {
-            match s.checked_add(addr) {
-                Some(add) => news.insert(add),
-                None => continue,
-            };
-        }
-        let intersection: FnvHashSet<_> = news.intersection(&pointers).collect();
-        if intersection.len() > most_intersections {
-            most_intersections = intersection.len();
-            println!(
-                "Matched {} strings to pointers at 0x{:x}",
-                intersection.len(),
-                addr
-            );
-        }
-        match addr.checked_add(config.offset) {
-            Some(_) => addr += config.offset,
-            None => break,
-        };
-    }
+    find_matches(&config, &strings, &pointers)?;
 
     Ok(())
 }
