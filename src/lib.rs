@@ -77,21 +77,7 @@ fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Er
     Ok(strings)
 }
 
-
-pub fn run(config: &Config) -> Result<(), Box<Error>> {
-    // Read in the input file. We jam it all into memory for now.
-    let mut f = File::open(&config.filename)?;
-    let mut buffer = Vec::new();
-    f.read_to_end(&mut buffer)?;
-
-    // Find indices of strings.
-    let mut strings = get_strings(&config, &buffer)?;
-
-    if strings.len() == 0 {
-        return Err("No strings found in target binary".into());
-    }
-    eprintln!("Located {} strings", strings.len());
-
+fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>>  {
     // Simply assume every 32-bit value is a pointer. Naïve!
     let mut pointers = FnvHashSet::default();
     let mut rdr = Cursor::new(&buffer);
@@ -108,6 +94,26 @@ pub fn run(config: &Config) -> Result<(), Box<Error>> {
             };
         }
     }
+
+    Ok(pointers)
+}
+
+
+pub fn run(config: &Config) -> Result<(), Box<Error>> {
+    // Read in the input file. We jam it all into memory for now.
+    let mut f = File::open(&config.filename)?;
+    let mut buffer = Vec::new();
+    f.read_to_end(&mut buffer)?;
+
+    // Find indices of strings.
+    let strings = get_strings(&config, &buffer)?;
+
+    if strings.len() == 0 {
+        return Err("No strings found in target binary".into());
+    }
+    eprintln!("Located {} strings", strings.len());
+
+    let pointers = get_pointers(&config, &buffer)?;
     eprintln!("Located {} pointers", pointers.len());
 
     // Look for a match.
