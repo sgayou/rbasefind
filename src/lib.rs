@@ -66,20 +66,26 @@ impl Config {
     }
 }
 
-
-pub fn run(config: Config) -> Result<(), Box<Error>> {
-    // Read in the input file. We jam it all into memory for now.
-    let mut f = File::open(config.filename)?;
-    let mut buffer = Vec::new();
-    f.read_to_end(&mut buffer)?;
-
-    // Find indices of strings.
+fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>>  {
     let mut strings = FnvHashSet::default();
-    // Scan for printable ascii characters as well as tab, carriage return, and newline before null.
+
     let reg_str = format!("[ -~\\t\\r\\n]{{{},}}\x00", config.min_str_len);
     for mat in Regex::new(&reg_str)?.find_iter(&buffer[..]) {
         strings.insert(mat.start() as u32);
     }
+
+    Ok(strings)
+}
+
+
+pub fn run(config: &Config) -> Result<(), Box<Error>> {
+    // Read in the input file. We jam it all into memory for now.
+    let mut f = File::open(&config.filename)?;
+    let mut buffer = Vec::new();
+    f.read_to_end(&mut buffer)?;
+
+    // Find indices of strings.
+    let mut strings = get_strings(&config, &buffer)?;
 
     if strings.len() == 0 {
         return Err("No strings found in target binary".into());
