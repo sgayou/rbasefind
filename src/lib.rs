@@ -1,6 +1,7 @@
 extern crate byteorder;
 extern crate clap;
 extern crate fnv;
+extern crate num_cpus;
 extern crate regex;
 
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
@@ -11,12 +12,15 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::prelude::*;
+use std::sync::Arc;
+use std::thread;
 
 pub struct Config {
     big_endian: bool,
     filename: String,
     min_str_len: u32,
     offset: u32,
+    threads: usize,
 }
 
 impl Config {
@@ -30,9 +34,10 @@ impl Config {
             )
             .args_from_usage(
                 "<INPUT>                'The input binary to scan'
-                            -b, --bigendian         'Interpret as Big Endian (default is little)'
-                            -m, --minstrlen=[LEN]   'Minimum string search length (default is 10)'
-                            -o, --offset=[LEN]      'Scan every N addresses. (default is 0x1000)'",
+                -b, --bigendian         'Interpret as Big Endian (default is little)'
+                -m, --minstrlen=[LEN]   'Minimum string search length (default is 10)'
+                -o, --offset=[LEN]      'Scan every N addresses. (default is 0x1000)'
+                -t  --threads=[NUM_THREADS] '# of threads to spawn. (default is # of cpu cores)'",
             )
             .get_matches();
 
@@ -59,6 +64,10 @@ impl Config {
                     return Err("0 offset is invalid");
                 }
                 offset_num
+            },
+            threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
+                Ok(v) => if v == 0 { num_cpus::get() } else { v },
+                Err(_) => return Err("failed to parse threads"),
             },
         };
 
@@ -95,37 +104,46 @@ fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<E
     Ok(pointers)
 }
 
+fn get_interval(interval: usize, max_threads: usize) -> (u32, u32) {
+    let start_addr = (interval * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as
+        u32;
+    let mut end_addr =
+        ((interval + 1) * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as u32;
+    if end_addr == 0 {
+        end_addr = u32::max_value();
+    }
+
+    (start_addr, end_addr)
+}
+
 fn find_matches(
     config: &Config,
     strings: &FnvHashSet<u32>,
     pointers: &FnvHashSet<u32>,
+    scan_interval: usize,
 ) -> Result<(), Box<Error>> {
     let mut most_intersections = 0;
-    let mut addr: u32 = u32::min_value();
-    eprintln!(
-        "Starting scan at 0x{:X} with 0x{:x} byte interval",
-        u32::min_value(),
-        &config.offset
-    );
-    while addr < u32::max_value() {
+    let (mut current_addr, end_addr) = get_interval(scan_interval, config.threads);
+
+    while current_addr <= end_addr {
         let mut news = FnvHashSet::default();
         for s in strings {
-            match s.checked_add(addr) {
+            match s.checked_add(current_addr) {
                 Some(add) => news.insert(add),
                 None => continue,
             };
         }
-        let intersection: FnvHashSet<_> = news.intersection(&pointers).collect();
+        let intersection: FnvHashSet<_> = news.intersection(pointers).collect();
         if intersection.len() > most_intersections {
             most_intersections = intersection.len();
             println!(
-                "Matched {} strings to pointers at 0x{:x}",
+                "Matched {} strings to pointers at 0x{:08x}",
                 intersection.len(),
-                addr
+                current_addr
             );
         }
-        match addr.checked_add(config.offset) {
-            Some(_) => addr += config.offset,
+        match current_addr.checked_add(config.offset) {
+            Some(_) => current_addr += config.offset,
             None => break,
         };
     }
@@ -133,8 +151,7 @@ fn find_matches(
     Ok(())
 }
 
-
-pub fn run(config: &Config) -> Result<(), Box<Error>> {
+pub fn run(config: Config) -> Result<(), Box<Error>> {
     // Read in the input file. We jam it all into memory for now.
     let mut f = File::open(&config.filename)?;
     let mut buffer = Vec::new();
@@ -143,7 +160,7 @@ pub fn run(config: &Config) -> Result<(), Box<Error>> {
     // Find indices of strings.
     let strings = get_strings(&config, &buffer)?;
 
-    if strings.len() == 0 {
+    if strings.is_empty() {
         return Err("No strings found in target binary".into());
     }
     eprintln!("Located {} strings", strings.len());
@@ -151,7 +168,31 @@ pub fn run(config: &Config) -> Result<(), Box<Error>> {
     let pointers = get_pointers(&config, &buffer)?;
     eprintln!("Located {} pointers", pointers.len());
 
-    find_matches(&config, &strings, &pointers)?;
+    // Make a vector to hold the children which are spawned.
+    let mut children = vec![];
+    let shared_config = Arc::new(config);
+    let shared_strings = Arc::new(strings);
+    let shared_pointers = Arc::new(pointers);
+
+    for i in 0..shared_config.threads {
+        // Spin up another thread
+        let child_config = Arc::clone(&shared_config);
+        let child_strings = Arc::clone(&shared_strings);
+        let child_pointers = Arc::clone(&shared_pointers);
+        children.push(thread::spawn(move || if let Err(e) = find_matches(
+            &child_config,
+            &child_strings,
+            &child_pointers,
+            i,
+        )
+        {
+            eprintln!("Thread error: {}", e);
+        }));
+    }
+
+    for child in children {
+        let _ = child.join();
+    }
 
     Ok(())
 }
