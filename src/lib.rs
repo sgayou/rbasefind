@@ -4,7 +4,7 @@ extern crate fnv;
 extern crate num_cpus;
 extern crate regex;
 
-use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use clap::App;
 use fnv::FnvHashSet;
 use regex::bytes::Regex;
@@ -30,7 +30,7 @@ impl Config {
             .author("Scott G. <github.scott@gmail.com>")
             .about(
                 "Scan a flat 32-bit binary and attempt to brute-force the base address via \
-                string/pointer comparison. Based on the excellent basefind.py by mncoppola.",
+                 string/pointer comparison. Based on the excellent basefind.py by mncoppola.",
             )
             .args_from_usage(
                 "<INPUT>                'The input binary to scan'
@@ -66,7 +66,11 @@ impl Config {
                 offset_num
             },
             threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
-                Ok(v) => if v == 0 { num_cpus::get() } else { v },
+                Ok(v) => if v == 0 {
+                    num_cpus::get()
+                } else {
+                    v
+                },
                 Err(_) => return Err("failed to parse threads"),
             },
         };
@@ -105,8 +109,8 @@ fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<E
 }
 
 fn get_interval(interval: usize, max_threads: usize) -> (u32, u32) {
-    let start_addr = (interval * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as
-        u32;
+    let start_addr =
+        (interval * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as u32;
     let mut end_addr =
         ((interval + 1) * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as u32;
     if end_addr == 0 {
@@ -179,14 +183,10 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
-        children.push(thread::spawn(move || if let Err(e) = find_matches(
-            &child_config,
-            &child_strings,
-            &child_pointers,
-            i,
-        )
-        {
-            eprintln!("Thread error: {}", e);
+        children.push(thread::spawn(move || {
+            if let Err(e) = find_matches(&child_config, &child_strings, &child_pointers, i) {
+                eprintln!("Thread error: {}", e);
+            }
         }));
     }
 
