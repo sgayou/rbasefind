@@ -237,42 +237,42 @@ mod tests {
     #[test]
     fn find_matches_single_cpu_interval_0() {
         let interval = Interval::get_range(0, 1, 0x1000).unwrap();
-        assert!(interval.start_addr == u32::min_value());
-        assert!(interval.end_addr == u32::max_value());
+        assert_eq!(interval.start_addr, u32::min_value());
+        assert_eq!(interval.end_addr, u32::max_value());
     }
 
     #[test]
     fn find_matches_double_cpu_interval_0() {
         let interval = Interval::get_range(0, 2, 0x1000).unwrap();
-        assert!(interval.start_addr == u32::min_value());
-        assert!(interval.end_addr == 0x80000000);
+        assert_eq!(interval.start_addr, u32::min_value());
+        assert_eq!(interval.end_addr, 0x80000000);
     }
 
     #[test]
     fn find_matches_double_cpu_interval_1() {
         let interval = Interval::get_range(1, 2, 0x1000).unwrap();
-        assert!(interval.start_addr == 0x80000000);
-        assert!(interval.end_addr == u32::max_value());
+        assert_eq!(interval.start_addr, 0x80000000);
+        assert_eq!(interval.end_addr, u32::max_value());
     }
 
     #[test]
     fn find_matches_triple_cpu_interval_0() {
         let interval = Interval::get_range(0, 3, 0x1000).unwrap();
-        assert!(interval.start_addr == u32::min_value());
-        assert!(interval.end_addr == 0x55555000);
+        assert_eq!(interval.start_addr, u32::min_value());
+        assert_eq!(interval.end_addr, 0x55555000);
     }
 
     #[test]
     fn find_matches_triple_cpu_interval_1() {
         let interval = Interval::get_range(1, 3, 0x1000).unwrap();
-        assert!(interval.start_addr == 0x55555000);
-        assert!(interval.end_addr == 0xAAAAA000);
+        assert_eq!(interval.start_addr, 0x55555000);
+        assert_eq!(interval.end_addr, 0xAAAAA000);
     }
 
     #[test]
     fn find_matches_triple_cpu_interval_2() {
         let interval = Interval::get_range(2, 3, 0x1000).unwrap();
-        assert!(interval.start_addr == 0xAAAAA000);
-        assert!(interval.end_addr == u32::max_value());
+        assert_eq!(interval.start_addr, 0xAAAAA000);
+        assert_eq!(interval.end_addr, u32::max_value());
     }
 }
