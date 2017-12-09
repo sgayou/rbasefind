@@ -36,7 +36,7 @@ impl Config {
                 "<INPUT>                'The input binary to scan'
                 -b, --bigendian         'Interpret as Big Endian (default is little)'
                 -m, --minstrlen=[LEN]   'Minimum string search length (default is 10)'
-                -o, --offset=[LEN]      'Scan every N addresses. (default is 0x1000)'
+                -o, --offset=[LEN]      'Scan every N (power of 2) addresses. (default is 0x1000)'
                 -t  --threads=[NUM_THREADS] '# of threads to spawn. (default is # of cpu cores)'",
             )
             .get_matches();
@@ -60,22 +60,56 @@ impl Config {
                     Ok(v) => v,
                     Err(_) => return Err("failed to parse offset"),
                 };
-                if offset_num == 0 {
-                    return Err("0 offset is invalid");
+                // This check also prevents offset_num from being zero.
+                if offset_num.count_ones() != 1 {
+                    return Err("Offset is not a power of 2");
                 }
                 offset_num
             },
             threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
-                Ok(v) => if v == 0 {
-                    num_cpus::get()
-                } else {
-                    v
-                },
+                Ok(v) => if v == 0 { num_cpus::get() } else { v },
                 Err(_) => return Err("failed to parse threads"),
             },
         };
 
         Ok(config)
+    }
+}
+
+pub struct Interval {
+    start_addr: u32,
+    end_addr: u32,
+}
+
+impl Interval {
+    fn get_range(index: usize, max_threads: usize, offset: u32) -> Result<Interval, Box<Error>> {
+        if index >= max_threads {
+            return Err("Invalid index specified".into());
+        }
+
+        if offset.count_ones() != 1 {
+            return Err("Invalid additive offset".into());
+        }
+
+        let mut start_addr = index as u64 *
+            ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
+        let mut end_addr = (index as u64 + 1) *
+            ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
+
+        // Mask the address such that it's aligned to the 2^N offset.
+        start_addr &= !(u64::from(offset) - 1);
+        if end_addr >= u64::from(u32::max_value()) {
+            end_addr = u64::from(u32::max_value());
+        } else {
+            end_addr &= !(u64::from(offset) - 1);
+        }
+
+        let interval = Interval {
+            start_addr: start_addr as u32,
+            end_addr: end_addr as u32,
+        };
+
+        Ok(interval)
     }
 }
 
@@ -108,28 +142,17 @@ fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<E
     Ok(pointers)
 }
 
-fn get_interval(interval: usize, max_threads: usize) -> (u32, u32) {
-    let start_addr =
-        (interval * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as u32;
-    let mut end_addr =
-        ((interval + 1) * ((u32::max_value() as usize + max_threads - 1) / max_threads)) as u32;
-    if end_addr == 0 {
-        end_addr = u32::max_value();
-    }
-
-    (start_addr, end_addr)
-}
-
 fn find_matches(
     config: &Config,
     strings: &FnvHashSet<u32>,
     pointers: &FnvHashSet<u32>,
     scan_interval: usize,
 ) -> Result<(), Box<Error>> {
+    let interval = Interval::get_range(scan_interval, config.threads, config.offset)?;
+    let mut current_addr = interval.start_addr;
     let mut most_intersections = 0;
-    let (mut current_addr, end_addr) = get_interval(scan_interval, config.threads);
 
-    while current_addr <= end_addr {
+    while current_addr <= interval.end_addr {
         let mut news = FnvHashSet::default();
         for s in strings {
             match s.checked_add(current_addr) {
@@ -183,10 +206,14 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
-        children.push(thread::spawn(move || {
-            if let Err(e) = find_matches(&child_config, &child_strings, &child_pointers, i) {
-                eprintln!("Thread error: {}", e);
-            }
+        children.push(thread::spawn(move || if let Err(e) = find_matches(
+            &child_config,
+            &child_strings,
+            &child_pointers,
+            i,
+        )
+        {
+            eprintln!("Thread error: {}", e);
         }));
     }
 
@@ -195,4 +222,57 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn find_matches_invalid_interval() {
+        let _ = Interval::get_range(1, 1, 0x1000).unwrap();
+    }
+
+    #[test]
+    fn find_matches_single_cpu_interval_0() {
+        let interval = Interval::get_range(0, 1, 0x1000).unwrap();
+        assert!(interval.start_addr == u32::min_value());
+        assert!(interval.end_addr == u32::max_value());
+    }
+
+    #[test]
+    fn find_matches_double_cpu_interval_0() {
+        let interval = Interval::get_range(0, 2, 0x1000).unwrap();
+        assert!(interval.start_addr == u32::min_value());
+        assert!(interval.end_addr == 0x80000000);
+    }
+
+    #[test]
+    fn find_matches_double_cpu_interval_1() {
+        let interval = Interval::get_range(1, 2, 0x1000).unwrap();
+        assert!(interval.start_addr == 0x80000000);
+        assert!(interval.end_addr == u32::max_value());
+    }
+
+    #[test]
+    fn find_matches_triple_cpu_interval_0() {
+        let interval = Interval::get_range(0, 3, 0x1000).unwrap();
+        assert!(interval.start_addr == u32::min_value());
+        assert!(interval.end_addr == 0x55555000);
+    }
+
+    #[test]
+    fn find_matches_triple_cpu_interval_1() {
+        let interval = Interval::get_range(1, 3, 0x1000).unwrap();
+        assert!(interval.start_addr == 0x55555000);
+        assert!(interval.end_addr == 0xAAAAA000);
+    }
+
+    #[test]
+    fn find_matches_triple_cpu_interval_2() {
+        let interval = Interval::get_range(2, 3, 0x1000).unwrap();
+        assert!(interval.start_addr == 0xAAAAA000);
+        assert!(interval.end_addr == u32::max_value());
+    }
 }
