@@ -9,16 +9,22 @@ This works rather well on some ARM (non-thumb) binaries. It's a very simple heur
 ### Example
 Below we scan a little-endian firmware image and set the minimum string length to 100. Lower minimum string lengths may give more accurate results but take more time. -m 100 returns almost instantly.
 ```bash
-./rbasefind fw_img.bin -m 100
-Located 38 strings.
-Located 540091 pointers.
-Starting scan at 0x0 with 0x1000 byte interval.
-Matched 5 strings to pointers at 0x0.
-Matched 38 strings to pointers at 0x2000.
+$ ./rbasefind fw_all.bin 
+Located 2355 strings
+Located 372822 pointers
+Scanning with 8 threads...
+0x00002000: 2195
+0x00001000: 103
+0x00000000: 102
+0x00003000: 101
+0x00004000: 90
+0x45e95000: 74
+0x45e93000: 73
+0x00006000: 64
+0x00005000: 59
+0x45ec3000: 58
 ```
 0x2000 was the correct base address for this binary.
 
 ## TODO
-* Store top matches in a heap then print them at the end.
-* Some form of progress indication.
 * Some form of auto mode. Detect endianness based on highest intersection. Auto decrease offset in window around highest match.

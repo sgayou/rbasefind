@@ -205,7 +205,6 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
     let pointers = get_pointers(&config, &buffer)?;
     eprintln!("Located {} pointers", pointers.len());
 
-    // Make a vector to hold the children which are s   pawned.
     let mut children = vec![];
     let shared_config = Arc::new(config);
     let shared_strings = Arc::new(strings);
@@ -228,6 +227,7 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
         heap.append(&mut child.join().unwrap().unwrap());
     }
 
+    // Print (up to) top N results.
     for _ in 0..shared_config.max_matches {
         let (count, addr) = match heap.pop() {
             Some(v) => v,
