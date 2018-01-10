@@ -8,6 +8,7 @@ use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use clap::App;
 use fnv::FnvHashSet;
 use regex::bytes::Regex;
+use std::collections::BinaryHeap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Cursor;
@@ -18,7 +19,8 @@ use std::thread;
 pub struct Config {
     big_endian: bool,
     filename: String,
-    min_str_len: u32,
+    min_str_len: usize,
+    max_matches: usize,
     offset: u32,
     threads: usize,
 }
@@ -36,6 +38,7 @@ impl Config {
                 "<INPUT>                'The input binary to scan'
                 -b, --bigendian         'Interpret as Big Endian (default is little)'
                 -m, --minstrlen=[LEN]   'Minimum string search length (default is 10)'
+                -n, --maxmatches=[LEN]   'Maximum matches to display (default is 10)'
                 -o, --offset=[LEN]      'Scan every N (power of 2) addresses. (default is 0x1000)'
                 -t  --threads=[NUM_THREADS] '# of threads to spawn. (default is # of cpu cores)'",
             )
@@ -44,6 +47,10 @@ impl Config {
         let config = Config {
             big_endian: arg_matches.is_present("bigendian"),
             filename: arg_matches.value_of("INPUT").unwrap().to_string(),
+            max_matches: match arg_matches.value_of("maxmatches").unwrap_or("10").parse() {
+                Ok(v) => v,
+                Err(_) => return Err("failed to parse maxmatches"),
+            },
             min_str_len: match arg_matches.value_of("minstrlen").unwrap_or("10").parse() {
                 Ok(v) => v,
                 Err(_) => return Err("failed to parse minstrlen"),
@@ -67,7 +74,11 @@ impl Config {
                 offset_num
             },
             threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
-                Ok(v) => if v == 0 { num_cpus::get() } else { v },
+                Ok(v) => if v == 0 {
+                    num_cpus::get()
+                } else {
+                    v
+                },
                 Err(_) => return Err("failed to parse threads"),
             },
         };
@@ -82,7 +93,11 @@ pub struct Interval {
 }
 
 impl Interval {
-    fn get_range(index: usize, max_threads: usize, offset: u32) -> Result<Interval, Box<Error>> {
+    fn get_range(
+        index: usize,
+        max_threads: usize,
+        offset: u32,
+    ) -> Result<Interval, Box<Error + Send + Sync>> {
         if index >= max_threads {
             return Err("Invalid index specified".into());
         }
@@ -91,10 +106,10 @@ impl Interval {
             return Err("Invalid additive offset".into());
         }
 
-        let mut start_addr = index as u64 *
-            ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
-        let mut end_addr = (index as u64 + 1) *
-            ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
+        let mut start_addr = index as u64
+            * ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
+        let mut end_addr = (index as u64 + 1)
+            * ((u64::from(u32::max_value()) + max_threads as u64 - 1) / max_threads as u64);
 
         // Mask the address such that it's aligned to the 2^N offset.
         start_addr &= !(u64::from(offset) - 1);
@@ -147,10 +162,10 @@ fn find_matches(
     strings: &FnvHashSet<u32>,
     pointers: &FnvHashSet<u32>,
     scan_interval: usize,
-) -> Result<(), Box<Error>> {
+) -> Result<BinaryHeap<(usize, u32)>, Box<Error + Send + Sync>> {
     let interval = Interval::get_range(scan_interval, config.threads, config.offset)?;
     let mut current_addr = interval.start_addr;
-    let mut most_intersections = 0;
+    let mut heap = BinaryHeap::<(usize, u32)>::new();
 
     while current_addr <= interval.end_addr {
         let mut news = FnvHashSet::default();
@@ -161,13 +176,8 @@ fn find_matches(
             };
         }
         let intersection: FnvHashSet<_> = news.intersection(pointers).collect();
-        if intersection.len() > most_intersections {
-            most_intersections = intersection.len();
-            println!(
-                "Matched {} strings to pointers at 0x{:08x}",
-                intersection.len(),
-                current_addr
-            );
+        if !intersection.is_empty() {
+            heap.push((intersection.len(), current_addr));
         }
         match current_addr.checked_add(config.offset) {
             Some(_) => current_addr += config.offset,
@@ -175,7 +185,7 @@ fn find_matches(
         };
     }
 
-    Ok(())
+    Ok(heap)
 }
 
 pub fn run(config: Config) -> Result<(), Box<Error>> {
@@ -195,30 +205,35 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
     let pointers = get_pointers(&config, &buffer)?;
     eprintln!("Located {} pointers", pointers.len());
 
-    // Make a vector to hold the children which are spawned.
+    // Make a vector to hold the children which are s   pawned.
     let mut children = vec![];
     let shared_config = Arc::new(config);
     let shared_strings = Arc::new(strings);
     let shared_pointers = Arc::new(pointers);
 
+    eprintln!("Scanning with {} threads...", shared_config.threads);
     for i in 0..shared_config.threads {
         // Spin up another thread
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
-        children.push(thread::spawn(move || if let Err(e) = find_matches(
-            &child_config,
-            &child_strings,
-            &child_pointers,
-            i,
-        )
-        {
-            eprintln!("Thread error: {}", e);
+        children.push(thread::spawn(move || {
+            find_matches(&child_config, &child_strings, &child_pointers, i)
         }));
     }
 
+    // Merge all of the heaps.
+    let mut heap = BinaryHeap::<(usize, u32)>::new();
     for child in children {
-        let _ = child.join();
+        heap.append(&mut child.join().unwrap().unwrap());
+    }
+
+    for _ in 0..shared_config.max_matches {
+        let (count, addr) = match heap.pop() {
+            Some(v) => v,
+            None => break,
+        };
+        println!("0x{:08x}: {}", addr, count);
     }
 
     Ok(())
