@@ -212,7 +212,6 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
 
     eprintln!("Scanning with {} threads...", shared_config.threads);
     for i in 0..shared_config.threads {
-        // Spin up another thread
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
