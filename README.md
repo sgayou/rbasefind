@@ -51,7 +51,7 @@ sys	0m0.035s
 
 0x00002000 was the correct base address for this binary.
 
-For large binaries, the default scan may take too long. The search size can be dialed down via specifying a minimum string length. i.e.,
+For large binaries, the default scan may take too long. The search size can be dialed down, at the expense of "accuracy", via specifying a minimum string length. i.e.,
 
 ```
 time ./target/release/rbasefind fw_all.bin -m 100
