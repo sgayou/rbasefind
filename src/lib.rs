@@ -97,7 +97,7 @@ impl Interval {
         index: usize,
         max_threads: usize,
         offset: u32,
-    ) -> Result<Interval, Box<Error + Send + Sync>> {
+    ) -> Result<Interval, Box<dyn Error + Send + Sync>> {
         if index >= max_threads {
             return Err("Invalid index specified".into());
         }
@@ -128,7 +128,7 @@ impl Interval {
     }
 }
 
-fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>> {
+fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<dyn Error>> {
     let mut strings = FnvHashSet::default();
 
     let reg_str = format!("[ -~\\t\\r\\n]{{{},}}\x00", config.min_str_len);
@@ -139,7 +139,7 @@ fn get_strings(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Er
     Ok(strings)
 }
 
-fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<Error>> {
+fn get_pointers(config: &Config, buffer: &[u8]) -> Result<FnvHashSet<u32>, Box<dyn Error>> {
     let mut pointers = FnvHashSet::default();
     let mut rdr = Cursor::new(&buffer);
     loop {
@@ -162,7 +162,7 @@ fn find_matches(
     strings: &FnvHashSet<u32>,
     pointers: &FnvHashSet<u32>,
     scan_interval: usize,
-) -> Result<BinaryHeap<(usize, u32)>, Box<Error + Send + Sync>> {
+) -> Result<BinaryHeap<(usize, u32)>, Box<dyn Error + Send + Sync>> {
     let interval = Interval::get_range(scan_interval, config.threads, config.offset)?;
     let mut current_addr = interval.start_addr;
     let mut heap = BinaryHeap::<(usize, u32)>::new();
@@ -188,7 +188,7 @@ fn find_matches(
     Ok(heap)
 }
 
-pub fn run(config: Config) -> Result<(), Box<Error>> {
+pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     // Read in the input file. We jam it all into memory for now.
     let mut f = File::open(&config.filename)?;
     let mut buffer = Vec::new();
