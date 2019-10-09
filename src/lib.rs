@@ -28,7 +28,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Result<Config, &'static str> {
         let arg_matches = App::new("rbasefind")
-            .version("0.1.0")
+            .version("0.1.2")
             .author("Scott G. <github.scott@gmail.com>")
             .about(
                 "Scan a flat 32-bit binary and attempt to brute-force the base address via \
