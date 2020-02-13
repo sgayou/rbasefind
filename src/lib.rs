@@ -3,6 +3,7 @@ extern crate clap;
 extern crate fnv;
 extern crate num_cpus;
 extern crate regex;
+extern crate pbr;
 
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use clap::App;
@@ -15,6 +16,7 @@ use std::io::Cursor;
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::thread;
+use pbr::MultiBar;
 
 pub struct Config {
     big_endian: bool,
@@ -162,11 +164,12 @@ fn find_matches(
     strings: &FnvHashSet<u32>,
     pointers: &FnvHashSet<u32>,
     scan_interval: usize,
+    mut pb: pbr::ProgressBar<pbr::Pipe>,
 ) -> Result<BinaryHeap<(usize, u32)>, Box<dyn Error + Send + Sync>> {
     let interval = Interval::get_range(scan_interval, config.threads, config.offset)?;
     let mut current_addr = interval.start_addr;
     let mut heap = BinaryHeap::<(usize, u32)>::new();
-
+    pb.total = ((interval.end_addr - interval.start_addr)/config.offset) as u64;
     while current_addr <= interval.end_addr {
         let mut news = FnvHashSet::default();
         for s in strings {
@@ -183,7 +186,9 @@ fn find_matches(
             Some(_) => current_addr += config.offset,
             None => break,
         };
+        pb.inc();
     }
+    pb.finish();
 
     Ok(heap)
 }
@@ -210,15 +215,21 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let shared_strings = Arc::new(strings);
     let shared_pointers = Arc::new(pointers);
 
-    eprintln!("Scanning with {} threads...", shared_config.threads);
+
+    let mut mb = MultiBar::new();
+    mb.println(&format!("Scanning with {} threads...", shared_config.threads));
     for i in 0..shared_config.threads {
+        let mut pb = mb.create_bar(100);
+        pb.show_message = true;
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
         children.push(thread::spawn(move || {
-            find_matches(&child_config, &child_strings, &child_pointers, i)
+            find_matches(&child_config, &child_strings, &child_pointers, i, pb)
         }));
     }
+
+    mb.listen();
 
     // Merge all of the heaps.
     let mut heap = BinaryHeap::<(usize, u32)>::new();
