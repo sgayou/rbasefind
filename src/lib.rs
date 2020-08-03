@@ -216,7 +216,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let shared_pointers = Arc::new(pointers);
 
 
-    let mut mb = MultiBar::new();
+    let mb = MultiBar::new();
     mb.println(&format!("Scanning with {} threads...", shared_config.threads));
     for i in 0..shared_config.threads {
         let mut pb = mb.create_bar(100);
