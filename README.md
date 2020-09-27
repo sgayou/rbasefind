@@ -8,12 +8,16 @@ This works rather well on some ARM (non-thumb) binaries. It's a very simple heur
 
 ### Help
 ```
+Scan a flat 32-bit binary and attempt to brute-force the base address via string/pointer comparison. Based on the
+excellent basefind.py by mncoppola.
+
 USAGE:
     rbasefind [FLAGS] [OPTIONS] <INPUT>
 
 FLAGS:
-    -b, --bigendian    Interpret as Big Endian (default is little)
+    -b, --bigendian    Interpret as big-endian (default is little)
     -h, --help         Prints help information
+    -p, --progress     Show progress
     -V, --version      Prints version information
 
 OPTIONS:
@@ -49,7 +53,7 @@ user	5m20.908s
 sys	0m0.035s
 ```
 
-0x00002000 was the correct base address for this binary.
+`0x00002000` was the correct base address for this binary.
 
 For large binaries, the default scan may take too long. The search size can be dialed down, at the expense of "accuracy", via specifying a minimum string length. i.e.,
 
