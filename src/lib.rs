@@ -2,21 +2,23 @@ extern crate byteorder;
 extern crate clap;
 extern crate fnv;
 extern crate num_cpus;
-extern crate regex;
 extern crate pbr;
+extern crate regex;
 
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use clap::App;
 use fnv::FnvHashSet;
+use pbr::MultiBar;
 use regex::bytes::Regex;
 use std::collections::BinaryHeap;
 use std::error::Error;
 use std::fs::File;
-use std::io::Cursor;
 use std::io::prelude::*;
+use std::io::stderr;
+use std::io::Cursor;
 use std::sync::Arc;
 use std::thread;
-use pbr::MultiBar;
+use std::time::Duration;
 
 pub struct Config {
     big_endian: bool,
@@ -30,7 +32,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Result<Config, &'static str> {
         let arg_matches = App::new("rbasefind")
-            .version("0.1.2")
+            .version("0.1.3")
             .author("Scott G. <github.scott@gmail.com>")
             .about(
                 "Scan a flat 32-bit binary and attempt to brute-force the base address via \
@@ -76,11 +78,13 @@ impl Config {
                 offset_num
             },
             threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
-                Ok(v) => if v == 0 {
-                    num_cpus::get()
-                } else {
-                    v
-                },
+                Ok(v) => {
+                    if v == 0 {
+                        num_cpus::get()
+                    } else {
+                        v
+                    }
+                }
                 Err(_) => return Err("failed to parse threads"),
             },
         };
@@ -169,7 +173,7 @@ fn find_matches(
     let interval = Interval::get_range(scan_interval, config.threads, config.offset)?;
     let mut current_addr = interval.start_addr;
     let mut heap = BinaryHeap::<(usize, u32)>::new();
-    pb.total = ((interval.end_addr - interval.start_addr)/config.offset) as u64;
+    pb.total = ((interval.end_addr - interval.start_addr) / config.offset) as u64;
     while current_addr <= interval.end_addr {
         let mut news = FnvHashSet::default();
         for s in strings {
@@ -215,12 +219,15 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let shared_strings = Arc::new(strings);
     let shared_pointers = Arc::new(pointers);
 
-
-    let mb = MultiBar::new();
-    mb.println(&format!("Scanning with {} threads...", shared_config.threads));
+    let mb = MultiBar::on(stderr());
+    mb.println(&format!(
+        "Scanning with {} threads...",
+        shared_config.threads
+    ));
     for i in 0..shared_config.threads {
         let mut pb = mb.create_bar(100);
         pb.show_message = true;
+        pb.set_max_refresh_rate(Some(Duration::from_millis(100)));
         let child_config = Arc::clone(&shared_config);
         let child_strings = Arc::clone(&shared_strings);
         let child_pointers = Arc::clone(&shared_pointers);
