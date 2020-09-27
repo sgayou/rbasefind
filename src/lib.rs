@@ -14,6 +14,7 @@ use std::collections::BinaryHeap;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::sink;
 use std::io::stderr;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub struct Config {
     min_str_len: usize,
     max_matches: usize,
     offset: u32,
+    progress: bool,
     threads: usize,
 }
 
@@ -39,11 +41,12 @@ impl Config {
                  string/pointer comparison. Based on the excellent basefind.py by mncoppola.",
             )
             .args_from_usage(
-                "<INPUT>                'The input binary to scan'
-                -b, --bigendian         'Interpret as Big Endian (default is little)'
-                -m, --minstrlen=[LEN]   'Minimum string search length (default is 10)'
-                -n, --maxmatches=[LEN]   'Maximum matches to display (default is 10)'
-                -o, --offset=[LEN]      'Scan every N (power of 2) addresses. (default is 0x1000)'
+                "<INPUT>                    'The input binary to scan'
+                -b, --bigendian             'Interpret as big-endian (default is little)'
+                -m, --minstrlen=[LEN]       'Minimum string search length (default is 10)'
+                -n, --maxmatches=[LEN]      'Maximum matches to display (default is 10)'
+                -p, --progress              'Show progress'
+                -o, --offset=[LEN]          'Scan every N (power of 2) addresses. (default is 0x1000)'
                 -t  --threads=[NUM_THREADS] '# of threads to spawn. (default is # of cpu cores)'",
             )
             .get_matches();
@@ -77,6 +80,7 @@ impl Config {
                 }
                 offset_num
             },
+            progress: arg_matches.is_present("progress"),
             threads: match arg_matches.value_of("threads").unwrap_or("0").parse() {
                 Ok(v) => {
                     if v == 0 {
@@ -219,11 +223,13 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let shared_strings = Arc::new(strings);
     let shared_pointers = Arc::new(pointers);
 
-    let mb = MultiBar::on(stderr());
-    mb.println(&format!(
-        "Scanning with {} threads...",
-        shared_config.threads
-    ));
+    let bar_output = match shared_config.progress {
+        false => Box::new(sink()) as Box<dyn Write>,
+        true => Box::new(stderr()) as Box<dyn Write>,
+    };
+
+    let mb = MultiBar::on(bar_output);
+    eprintln!("Scanning with {} threads...", shared_config.threads);
     for i in 0..shared_config.threads {
         let mut pb = mb.create_bar(100);
         pb.show_message = true;
